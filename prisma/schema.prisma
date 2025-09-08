@@ -1,0 +1,375 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  GUILD_ADMIN
+  GUILD_MEMBER
+}
+
+enum SubscriptionPlan {
+  BASIC
+  EXTENDED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  PENDING_PAYMENT
+}
+
+enum GuildType {
+  FRIEND
+  ENEMY
+}
+
+enum PlayerType {
+  GUILD_MEMBER
+  EXTERNAL_FRIEND
+  EXTERNAL_ENEMY
+}
+
+enum DeathType {
+  PVP
+  PVE
+}
+
+enum AlertType {
+  ENEMIES_ONLINE
+  LEVEL_RANGE
+  DEATHS
+  CUSTOM
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String?       @unique
+  emailVerified DateTime?
+  characterName String        @unique
+  world         String
+  role          UserRole      @default(GUILD_MEMBER)
+  guildId       String?
+  passwordHash  String
+  isActive      Boolean       @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  accounts      Account[]
+  sessions      Session[]
+  subscription  Subscription?
+  guild         Guild?        @relation(fields: [guildId], references: [id])
+  alertRules    AlertRule[]
+  paymentVerifications PaymentVerification[]
+  worldSubscriptions WorldSubscription[]
+  
+  @@index([characterName, world])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Subscription {
+  id               String             @id @default(cuid())
+  userId           String             @unique
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan             SubscriptionPlan   @default(BASIC)
+  worldLimit       Int                @default(1)
+  tibiaCoinsOption Boolean            @default(false)
+  status           SubscriptionStatus @default(PENDING_PAYMENT)
+  expiresAt        DateTime
+  lastPaymentAt    DateTime?
+  nextBillingDate  DateTime
+  amount           Decimal            @db.Decimal(10, 2)
+  currency         String             @default("USD")
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  
+  payments         Payment[]
+  
+  @@index([status, expiresAt])
+}
+
+model Payment {
+  id             String    @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  amount         Decimal   @db.Decimal(10, 2)
+  currency       String    @default("USD")
+  tibiaCoins     Int?      // Amount in Tibia Coins if paid via game
+  status         String    // pending, completed, failed, refunded
+  paymentMethod  String    // tibia_coins, stripe, etc.
+  externalId     String?   // Stripe payment intent ID or similar
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  verification   PaymentVerification?
+  
+  @@index([status, createdAt])
+}
+
+model PaymentVerification {
+  id                String    @id @default(cuid())
+  paymentId         String    @unique
+  payment           Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromCharacter     String    // Character that sent the Tibia Coins
+  toCharacter       String    // Character that received the Tibia Coins (our character)
+  amount            Int       // Amount in Tibia Coins
+  transferTimestamp DateTime  // When the transfer was made in-game
+  screenshot        String?   @db.Text // Base64 encoded screenshot of transfer
+  status            String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  submittedAt       DateTime  @default(now())
+  reviewedAt        DateTime?
+  reviewedBy        String?   // Admin user ID who reviewed
+  adminNotes        String?   @db.Text
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@index([status, submittedAt])
+}
+
+model Guild {
+  id            String    @id @default(cuid())
+  name          String
+  world         String
+  type          GuildType @default(FRIEND)
+  isMainGuild   Boolean   @default(false)
+  parentGuildId String?
+  guildPassword String    // Hashed password for guild access
+  description   String?
+  isActive      Boolean   @default(true)
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  parentGuild   Guild?    @relation("GuildAcademy", fields: [parentGuildId], references: [id])
+  academyGuilds Guild[]   @relation("GuildAcademy")
+  players       Player[]
+  users         User[]
+  alertRules    AlertRule[]
+  guildConfigurations GuildConfiguration[]
+  
+  @@unique([name, world])
+  @@index([world, type])
+}
+
+model Player {
+  id           String     @id @default(cuid())
+  name         String
+  world        String
+  level        Int
+  vocation     String
+  guildId      String?
+  type         PlayerType @default(GUILD_MEMBER)
+  isOnline     Boolean    @default(false)
+  lastSeen     DateTime   @default(now())
+  lastChecked  DateTime   @default(now())
+  experience   BigInt?
+  achievementPoints Int?
+  residence    String?
+  marriedTo    String?
+  house        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  
+  guild        Guild?     @relation(fields: [guildId], references: [id])
+  deaths       Death[]
+  onlineHistory OnlineHistory[]
+  
+  @@unique([name, world])
+  @@index([world, isOnline])
+  @@index([guildId, type])
+}
+
+model Death {
+  id          String    @id @default(cuid())
+  playerId    String
+  player      Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  timestamp   DateTime
+  level       Int
+  killers     String[]  // Array of killer names
+  description String    @db.Text
+  type        DeathType
+  processed   Boolean   @default(false)
+  notified    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  
+  notifications Notification[]
+  
+  @@index([playerId, timestamp])
+  @@index([processed, type])
+}
+
+model OnlineHistory {
+  id        String   @id @default(cuid())
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  timestamp DateTime @default(now())
+  isOnline  Boolean
+  level     Int
+  
+  @@index([playerId, timestamp])
+}
+
+model AlertRule {
+  id           String    @id @default(cuid())
+  name         String
+  description  String?
+  userId       String
+  guildId      String?
+  type         AlertType
+  enabled      Boolean   @default(true)
+  threshold    Int?      // Generic threshold value
+  timeWindow   Int?      // Time window in minutes
+  levelMin     Int?      // Minimum level for level-based alerts
+  levelMax     Int?      // Maximum level for level-based alerts
+  customCondition Json?  // Flexible JSON for complex conditions
+  message      String    // Custom alert message template
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guild        Guild?    @relation(fields: [guildId], references: [id])
+  notifications Notification[]
+  
+  @@index([userId, enabled])
+  @@index([guildId, enabled])
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  alertRuleId String?
+  deathId     String?
+  title       String
+  message     String    @db.Text
+  type        String    // death, alert, system, etc.
+  priority    String    @default("normal") // low, normal, high, urgent
+  read        Boolean   @default(false)
+  sentAt      DateTime  @default(now())
+  readAt      DateTime?
+  metadata    Json?     // Additional data for the notification
+  
+  alertRule   AlertRule? @relation(fields: [alertRuleId], references: [id])
+  death       Death?     @relation(fields: [deathId], references: [id])
+  
+  @@index([read, sentAt])
+  @@index([type, priority])
+}
+
+model SystemSettings {
+  id                    String   @id @default(cuid())
+  key                   String   @unique
+  value                 String   @db.Text
+  description           String?
+  updatedAt             DateTime @updatedAt
+  updatedBy             String?
+}
+
+model ApiUsage {
+  id            String   @id @default(cuid())
+  endpoint      String
+  method        String
+  statusCode    Int
+  responseTime  Int      // Response time in milliseconds
+  timestamp     DateTime @default(now())
+  userId        String?
+  ipAddress     String?
+  userAgent     String?
+  
+  @@index([endpoint, timestamp])
+  @@index([userId, timestamp])
+}
+
+model TibiaDataCache {
+  id          String   @id @default(cuid())
+  cacheKey    String   @unique
+  data        Json
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  
+  @@index([expiresAt])
+}
+
+// New models for multi-world support
+model WorldSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world     String
+  isActive  Boolean  @default(true)
+  maxGuilds Int      @default(3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  guildConfigurations GuildConfiguration[]
+  
+  @@unique([userId, world])
+  @@index([world, isActive])
+}
+
+model GuildConfiguration {
+  id                   String            @id @default(cuid())
+  worldSubscriptionId  String
+  worldSubscription    WorldSubscription @relation(fields: [worldSubscriptionId], references: [id], onDelete: Cascade)
+  guildId             String
+  guild               Guild             @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  type                GuildConfigType   @default(MAIN)
+  priority            Int               @default(1)
+  isActive            Boolean           @default(true)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  
+  @@unique([worldSubscriptionId, guildId])
+  @@index([type, isActive])
+}
+
+enum GuildConfigType {
+  MAIN
+  ALLY
+  ENEMY
+}
