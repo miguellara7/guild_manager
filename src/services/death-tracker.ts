@@ -176,11 +176,11 @@ class DeathTrackerService {
    */
   private processSingleDeath(
     playerId: string,
-    death: any
+    death: { date: string; level: number; killers: unknown[]; reason: string }
   ): ProcessedDeath | null {
     try {
       const timestamp = new Date(death.date);
-      const killers = death.killers.map((killer: any) => killer.name);
+      const killers = death.killers.map((killer: unknown) => (killer as { name: string }).name);
       const deathType = this.determineDeathType(death.killers);
 
       return {
@@ -200,11 +200,14 @@ class DeathTrackerService {
   /**
    * Determine if death is PvP or PvE based on killers
    */
-  private determineDeathType(killers: any[]): 'PVP' | 'PVE' {
+  private determineDeathType(killers: unknown[]): 'PVP' | 'PVE' {
     if (!killers || killers.length === 0) return 'PVE';
 
     // If any killer is a player (not a summon), it's PvP
-    const hasPlayerKiller = killers.some(killer => killer.player && !killer.summon);
+    const hasPlayerKiller = killers.some(killer => {
+      const k = killer as { player?: boolean; summon?: string };
+      return k.player && !k.summon;
+    });
     return hasPlayerKiller ? 'PVP' : 'PVE';
   }
 
@@ -234,7 +237,7 @@ class DeathTrackerService {
   /**
    * Get recent deaths for a guild
    */
-  async getGuildDeaths(guildId: string, limit = 50): Promise<any[]> {
+  async getGuildDeaths(guildId: string, limit = 50): Promise<Death[]> {
     return prisma.death.findMany({
       where: {
         player: { guildId },
@@ -256,7 +259,7 @@ class DeathTrackerService {
   /**
    * Get PvP deaths for analysis
    */
-  async getPvPDeaths(guildId: string, days = 7): Promise<any[]> {
+  async getPvPDeaths(guildId: string, days = 7): Promise<Death[]> {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     return prisma.death.findMany({
@@ -281,7 +284,13 @@ class DeathTrackerService {
   /**
    * Get death statistics for a guild
    */
-  async getDeathStats(guildId: string, days = 30): Promise<any> {
+  async getDeathStats(guildId: string, days = 30): Promise<{
+    totalDeaths: number;
+    pvpDeaths: number;
+    pveDeaths: number;
+    avgLevel: number;
+    mostDangerous: string[];
+  }> {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const [totalDeaths, pvpDeaths, pveDeaths, deathsByLevel] = await Promise.all([

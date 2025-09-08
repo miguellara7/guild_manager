@@ -129,7 +129,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           // Step 3: Update last login (only for registered users)
-          if (!user.id.startsWith('player_')) {
+          if (user && !user.id.startsWith('player_')) {
             await prisma.user.update({
               where: { id: user.id },
               data: { lastLoginAt: new Date() },
@@ -137,6 +137,10 @@ export const authOptions: NextAuthOptions = {
           }
 
           console.log('✅ Login successful');
+
+          if (!user) {
+            throw new Error('Authentication failed - user object is null');
+          }
 
           return {
             id: user.id,

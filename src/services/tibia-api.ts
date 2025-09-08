@@ -235,7 +235,7 @@ class TibiaDataService {
   /**
    * Determine if death is PvP or PvE based on killers
    */
-  private determineDeathType(killers: any[]): 'pvp' | 'pve' {
+  private determineDeathType(killers: unknown[]): 'pvp' | 'pve' {
     if (!killers || killers.length === 0) return 'pve';
     
     // If any killer is a player, it's PvP

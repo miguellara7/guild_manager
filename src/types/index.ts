@@ -1,11 +1,11 @@
-import { User, Guild, Player, Death, AlertRule, Subscription } from "@prisma/client";
+import { User, Guild, Player, Death, AlertRule, Subscription, PaymentVerification } from "@prisma/client";
 
 // Extend Prisma types with relations
 export interface UserWithRelations extends User {
   guild?: GuildWithRelations;
   subscription?: Subscription;
   alertRules?: AlertRule[];
-  paymentVerifications?: any[];
+  paymentVerifications?: PaymentVerification[];
 }
 
 export interface GuildWithRelations extends Guild {
@@ -168,7 +168,7 @@ export interface NotificationData {
   priority: 'low' | 'normal' | 'high' | 'urgent';
   timestamp: Date;
   read: boolean;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 // WebSocket event types
@@ -189,7 +189,7 @@ export interface SocketEvents {
 }
 
 // API Response types
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -250,7 +250,7 @@ export interface DeathFilters {
 }
 
 // Cache types
-export interface CacheEntry<T = any> {
+export interface CacheEntry<T = unknown> {
   key: string;
   data: T;
   expiresAt: Date;
