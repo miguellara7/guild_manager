@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions, checkUserPermissions } from '@/lib/auth';
-import { subscriptionService } from '@/services/subscription-service';
+import { authOptions } from '@/lib/auth-simple';
+import { prisma } from '@/lib/db';
 import { z } from 'zod';
 
 const rejectPaymentSchema = z.object({
-  verificationId: z.string().min(1),
+  paymentId: z.string().min(1),
   reason: z.string().min(1, 'Rejection reason is required'),
 });
 
@@ -18,8 +18,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has super admin permissions
-    const hasPermission = await checkUserPermissions(session.user.id, 'SUPER_ADMIN');
-    if (!hasPermission) {
+    if (session.user.role !== 'SUPER_ADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -34,10 +33,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { verificationId, reason } = validationResult.data;
+    const { paymentId, reason } = validationResult.data;
 
-    // Reject payment
-    await subscriptionService.rejectPayment(verificationId, session.user.id, reason);
+    // Update payment verification status
+    await prisma.paymentVerification.update({
+      where: { id: paymentId },
+      data: {
+        status: 'REJECTED',
+        verifiedAt: new Date(),
+        verifiedBy: session.user.id,
+        notes: reason,
+      },
+    });
+
+    // Update associated payment status
+    const verification = await prisma.paymentVerification.findUnique({
+      where: { id: paymentId },
+      include: { payment: true },
+    });
+
+    if (verification?.payment) {
+      await prisma.payment.update({
+        where: { id: verification.payment.id },
+        data: { status: 'FAILED' },
+      });
+    }
 
     return NextResponse.json({
       success: true,
